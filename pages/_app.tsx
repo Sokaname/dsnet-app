@@ -7,13 +7,22 @@ export default function App({ Component, pageProps }: AppProps) {
   
   // --- CÓDIGO NOVO PARA INSTALAR O APP ---
   useEffect(() => {
+    // 1. Regista o Service Worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
-        .then(() => console.log('Service Worker registrado!'))
-        .catch((err) => console.log('Falha ao registrar SW', err));
+        .then(() => console.log('Service Worker ativo!'))
+        .catch((err) => console.log('Erro no SW', err));
+    }
+
+    // 2. Pede permissão para notificações
+    if ('Notification' in window) {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          console.log('Permissão de notificação concedida!');
+        }
+      });
     }
   }, []);
-  // ---------------------------------------
 
   return (
     <>
