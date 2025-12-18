@@ -47,7 +47,7 @@ export default function ChatRoom() {
       .from('messages')
       .select('*')
       .eq('channel_id', id)
-      .order('created_at', { ascending: true });
+      .order('id', { ascending: true });
     if (data) {
       setMessages(data);
       scrollToBottom();
