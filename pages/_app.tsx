@@ -28,4 +28,4 @@ export default function App({ Component, pageProps }: AppProps) {
     </>
   );
 }
-<link rel="manifest" href="/manifest.json?v=1" />
+<link rel="manifest" href="/manifest.json?v=2" />
