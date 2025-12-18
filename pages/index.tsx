@@ -36,22 +36,23 @@ export default function Login() {
   };
 
   const enviarNotificacaoTeste = () => {
-    if ('Notification' in window) {
-      if (Notification.permission === 'granted') {
-        navigator.serviceWorker.ready.then(registration => {
-          // Criamos as opções primeiro como 'any' para evitar o erro do vibrate
-          const options: any = {
-            body: 'O teste de notificação funcionou! 🚀',
-            icon: '/icon-512.png',
-            vibrate: [200, 100, 200],
-            badge: '/icon-512.png'
-          };
-          registration.showNotification('Dsnet Avisa:', options);
-        });
-      } else {
-        alert('Por favor, permita as notificações primeiro.');
-        Notification.requestPermission();
-      }
+    // 1. Tocar o som
+    const audio = new Audio('/notificacao.mp3');
+    audio.play().catch(e => console.log("Erro ao tocar som:", e));
+
+    // 2. Mostrar a notificação visual
+    if ('Notification' in window && Notification.permission === 'granted') {
+      navigator.serviceWorker.ready.then(registration => {
+        const options: any = {
+          body: 'O teste de notificação com som funcionou! 🔔',
+          icon: '/icon-512.png',
+          vibrate: [200, 100, 200],
+          badge: '/icon-512.png'
+        };
+        registration.showNotification('Dsnet Avisa:', options);
+      });
+    } else {
+      Notification.requestPermission();
     }
   };
 
