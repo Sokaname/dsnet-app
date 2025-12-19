@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/router';
 import { supabase } from '../../supabaseClient';
+import { useRouter } from 'next/router';
 
 export default function ChatRoom() {
   const router = useRouter();
-  const { id } = router.query; // Pega o ID da URL (ex: 1, 2)
+  const { id } = router.query;
 
   const [channel, setChannel] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState('');
+  const [uploading, setUploading] = useState(false); // NOVO ESTADO
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
 
-  // 1. Pega o usuário logado e os dados do canal
+  // 1. Carregar Dados e Realtime
   useEffect(() => {
     const getUser = async () => {
       const { data } = await supabase.auth.getUser();
@@ -24,10 +25,9 @@ export default function ChatRoom() {
       fetchChannelDetails();
       fetchMessages();
       
-      // ATIVAR O REALTIME (Mensagens chegando na hora)
       const channelSub = supabase
-        .channel('public:messages')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `channel_id=eq.${id}` }, (payload) => {
+        .channel('public:mensagens') // Nome da tabela corrigido
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensagens', filter: `channel_id=eq.${id}` }, (payload) => {
           setMessages((current) => [...current, payload.new]);
           scrollToBottom();
         })
@@ -44,7 +44,7 @@ export default function ChatRoom() {
 
   const fetchMessages = async () => {
     const { data } = await supabase
-      .from('messages')
+      .from('mensagens') // Nome corrigido para 'mensagens'
       .select('*')
       .eq('channel_id', id)
       .order('id', { ascending: true });
@@ -54,14 +54,46 @@ export default function ChatRoom() {
     }
   };
 
+  // 2. FUNÇÃO DE ENVIAR ARQUIVO (ANEXADA AQUI)
+  const enviarArquivo = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      setUploading(true);
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      let { error: uploadError } = await supabase.storage
+        .from('arquivos')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('arquivos').getPublicUrl(filePath);
+
+      await supabase.from('mensagens').insert([{ 
+        file_url: data.publicUrl, 
+        user_name: currentUser.split('@')[0], 
+        channel_id: id 
+      }]);
+
+    } catch (error: any) {
+      alert('Erro ao enviar: ' + error.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const sendMessage = async (e: any) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
 
-    await supabase.from('messages').insert([{
+    await supabase.from('mensagens').insert([{
       content: newMessage,
       channel_id: id,
-      user_email: currentUser
+      user_name: currentUser.split('@')[0]
     }]);
 
     setNewMessage('');
@@ -73,73 +105,48 @@ export default function ChatRoom() {
     }, 100);
   };
 
-  // --- ESTILOS ---
-  const styles: { [key: string]: React.CSSProperties } = {
-    container: { height: '100vh', display: 'flex', flexDirection: 'column', backgroundColor: '#0f172a', fontFamily: 'sans-serif', color: 'white' },
-    header: { padding: '20px', borderBottom: '1px solid #334155', backgroundColor: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', zIndex: 10 },
-    backBtn: { background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '5px' },
-    titleArea: { textAlign: 'center' },
-    title: { margin: 0, fontSize: '18px' },
-    sub: { margin: 0, fontSize: '12px', color: '#94a3b8' },
-    
-    chatArea: { flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' },
-    
-    messageBubble: { maxWidth: '70%', padding: '12px 16px', borderRadius: '12px', position: 'relative', wordWrap: 'break-word', fontSize: '15px', lineHeight: '1.4' },
-    myMsg: { alignSelf: 'flex-end', backgroundColor: '#2563eb', color: 'white', borderBottomRightRadius: '2px' },
-    otherMsg: { alignSelf: 'flex-start', backgroundColor: '#334155', color: '#e2e8f0', borderBottomLeftRadius: '2px' },
-    
-    senderName: { fontSize: '10px', marginBottom: '4px', opacity: 0.8, fontWeight: 'bold' },
-    
-    inputArea: { padding: '20px', backgroundColor: '#1e293b', borderTop: '1px solid #334155', display: 'flex', gap: '10px' },
-    input: { flex: 1, padding: '15px', borderRadius: '25px', border: '1px solid #475569', backgroundColor: '#0f172a', color: 'white', outline: 'none' },
-    sendBtn: { width: '50px', height: '50px', borderRadius: '50%', border: 'none', backgroundColor: '#2563eb', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }
-  };
-
-  if (!channel) return <div style={{padding: 20, color: 'white'}}>Carregando chat...</div>;
-
   return (
-    <div style={styles.container}>
-      {/* Topo */}
-      <div style={styles.header}>
-        <button style={styles.backBtn} onClick={() => router.push('/dashboard')}>← Voltar</button>
-        <div style={styles.titleArea}>
-          <h2 style={styles.title}># {channel.title}</h2>
-          <p style={styles.sub}>{currentUser}</p>
-        </div>
-        <div style={{width: 30}}></div> {/* Espaço vazio pra equilibrar */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: '#0f172a', color: 'white' }}>
+      {/* Cabeçalho */}
+      <div style={{ padding: '15px', background: '#1e293b', borderBottom: '1px solid #334155' }}>
+        <strong>{channel?.name || 'Carregando...'}</strong>
       </div>
 
-      {/* Mensagens */}
-      <div style={styles.chatArea}>
-        {messages.length === 0 && (
-          <div style={{textAlign: 'center', color: '#64748b', marginTop: '50px'}}>
-            <p>Nenhuma mensagem ainda.</p>
-            <p>Seja o primeiro a falar!</p>
-          </div>
-        )}
-
-        {messages.map((msg) => {
-          const isMe = msg.user_email === currentUser;
-          return (
-            <div key={msg.id} style={{...styles.messageBubble, ...(isMe ? styles.myMsg : styles.otherMsg)}}>
-              {!isMe && <div style={styles.senderName}>{msg.user_email}</div>}
-              {msg.content}
+      {/* Lista de Mensagens */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
+        {messages.map((msg) => (
+          <div key={msg.id} style={{ marginBottom: '15px', textAlign: msg.user_name === currentUser.split('@')[0] ? 'right' : 'left' }}>
+            <div style={{ display: 'inline-block', padding: '10px', borderRadius: '10px', backgroundColor: msg.file_url ? 'transparent' : '#334155' }}>
+              <small style={{ color: '#94a3b8' }}>{msg.user_name}</small><br/>
+              {msg.file_url ? (
+                <img src={msg.file_url} style={{ maxWidth: '200px', borderRadius: '10px' }} />
+              ) : (
+                <span>{msg.content}</span>
+              )}
             </div>
-          );
-        })}
+          </div>
+        ))}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Campo de Digitar */}
-      <form style={styles.inputArea} onSubmit={sendMessage}>
-        <input 
-          style={styles.input} 
-          placeholder="Digite sua mensagem..." 
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-        />
-        <button type="submit" style={styles.sendBtn}>➤</button>
-      </form>
+      {/* Barra de Digitação (Onde o Clipe entra) */}
+      <div style={{ padding: '15px', background: '#1e293b', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <label style={{ cursor: 'pointer' }}>
+          <input type="file" style={{ display: 'none' }} onChange={enviarArquivo} disabled={uploading} accept="image/*" />
+          <span style={{ fontSize: '24px' }}>{uploading ? '⏳' : '📎'}</span>
+        </label>
+        
+        <form onSubmit={sendMessage} style={{ flex: 1, display: 'flex', gap: '10px' }}>
+          <input 
+            type="text" 
+            value={newMessage} 
+            onChange={(e) => setNewMessage(e.target.value)} 
+            placeholder="Mensagem"
+            style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#0f172a', color: 'white' }} 
+          />
+          <button type="submit" style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: '20px' }}>➤</button>
+        </form>
+      </div>
     </div>
   );
 }
