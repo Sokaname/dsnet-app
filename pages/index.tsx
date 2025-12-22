@@ -78,10 +78,10 @@ export default function Home() {
       <div className={styles.channelList}>
         <h2>Canais de Grupo</h2>
         {channels.map(channel => (
-          <Link key={channel.id} href={`/chat/${channel.id}`} passHref>
-            <div className={styles.channelItem}>
+          <Link key={channel.id} href={`/chat/${channel.id}`} legacyBehavior>
+            <a className={styles.channelItem}>
               {channel.name}
-            </div>
+            </a>
           </Link>
         ))}
       </div>

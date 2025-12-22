@@ -129,7 +129,7 @@ export default function ChatRoom() {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <Link href="/" passHref>
+        <Link href="/" legacyBehavior>
           <a className={styles.backButton}>
             <Image src="/arrow-left.svg" alt="Voltar" width={24} height={24} />
           </a>
