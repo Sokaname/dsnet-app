@@ -1,100 +1,101 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
+import styles from './index.module.css';
+import UserList from '../components/UserList'; // Importa o componente do modal
 
-export default function Login() {
+// Define a interface para o usuário, que será usada no modal
+interface User {
+  id: string;
+  email: string;
+}
+
+export default function Home() {
+  const [channels, setChannels] = useState<any[]>([]);
+  const [newChannelName, setNewChannelName] = useState('');
+  const [isModalOpen, setModalOpen] = useState(false); // Estado para controlar o modal
+  const [currentUserId, setCurrentUserId] = useState(''); // Estado para o ID do usuário atual
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage('');
-    
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email,
-        password: password,
-      });
+  useEffect(() => {
+    const fetchSession = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            setCurrentUserId(user.id);
+        }
+    };
 
+    const fetchChannels = async () => {
+      const { data, error } = await supabase.from('mensagens').select('channel_id');
       if (error) {
-        setMessage('❌ Senha incorreta ou usuário não existe.');
-        setLoading(false);
+        console.error('Error fetching channels', error);
       } else {
-        setMessage('✅ Login aprovado! Entrando...');
-        setTimeout(() => {
-            router.push('/dashboard');
-        }, 1000);
+        const uniqueChannelIds = [...new Set(data.map(item => item.channel_id))];
+        setChannels(uniqueChannelIds.map(id => ({ id, name: `Canal ${id}` })));
       }
-    } catch (err: any) {
-      setMessage('Erro técnico.');
-      setLoading(false);
+    };
+
+    fetchSession();
+    fetchChannels();
+  }, []);
+
+  const createChannel = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newChannelName.trim()) {
+      alert('O nome do canal não pode ser vazio.');
+      return;
     }
+    router.push(`/chat/${newChannelName.trim()}`);
   };
 
-  const enviarNotificacaoTeste = () => {
-    // 1. Tocar o som
-    const audio = new Audio('/notificacao.mp3');
-    audio.play().catch(e => console.log("Erro ao tocar som:", e));
-
-    // 2. Mostrar a notificação visual
-    if ('Notification' in window && Notification.permission === 'granted') {
-      navigator.serviceWorker.ready.then(registration => {
-        const options: any = {
-          body: 'O teste de notificação com som funcionou! 🔔',
-          icon: '/icon-512.png',
-          vibrate: [200, 100, 200],
-          badge: '/icon-512.png'
-        };
-        registration.showNotification('Dsnet Avisa:', options);
-      });
-    } else {
-      Notification.requestPermission();
-    }
-  };
-
-  const styles: { [key: string]: React.CSSProperties } = {
-    container: { minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)', fontFamily: 'sans-serif', padding: '20px' },
-    card: { width: '100%', maxWidth: '380px', backgroundColor: 'rgba(30, 41, 59, 0.95)', borderRadius: '24px', padding: '40px 30px', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)' },
-    logoArea: { textAlign: 'center', marginBottom: '30px' },
-    title: { color: 'white', fontSize: '26px', fontWeight: '700', margin: '10px 0 5px 0' },
-    subtitle: { color: '#94a3b8', fontSize: '14px' },
-    inputGroup: { marginBottom: '20px' },
-    label: { display: 'block', color: '#cbd5e1', fontSize: '13px', marginBottom: '8px', fontWeight: '500' },
-    input: { width: '100%', padding: '16px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '12px', color: 'white', fontSize: '15px', outline: 'none', boxSizing: 'border-box' },
-    button: { width: '100%', padding: '16px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '12px', fontWeight: '600', fontSize: '16px', cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.7 : 1, marginTop: '10px', boxShadow: '0 4px 15px rgba(37, 99, 235, 0.4)' },
-    message: { textAlign: 'center', marginTop: '20px', fontSize: '14px', color: message.includes('✅') ? '#4ade80' : '#f87171', minHeight: '20px' },
-    btnTeste: { backgroundColor: '#eab308', color: 'black', padding: '12px 20px', borderRadius: '12px', fontWeight: 'bold', marginTop: '20px', cursor: 'pointer', border: 'none' }
+  // Função para lidar com a seleção de um usuário no modal
+  const handleSelectUser = (user: User) => {
+    // Cria um ID de canal único e determinístico para a conversa privada
+    // Ordenando os IDs, garantimos que ambos os usuários cheguem ao mesmo canal
+    const channelId = [currentUserId, user.id].sort().join('_');
+    router.push(`/chat/${channelId}`);
+    setModalOpen(false); // Fecha o modal após a seleção
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <div style={styles.logoArea}>
-          <h1 style={styles.title}>Dsnet</h1>
-          <p style={styles.subtitle}>Portal do Técnico</p>
-        </div>
-        
-        <form onSubmit={handleLogin}>
-          <div style={styles.inputGroup}>
-            <label style={styles.label}>E-mail</label>
-            <input type="email" placeholder="ex: rafael@dsnet.com.br" style={styles.input} value={email} onChange={(e) => setEmail(e.target.value)} disabled={loading} />
-          </div>
-          <div style={styles.inputGroup}>
-            <label style={styles.label}>Senha</label>
-            <input type="password" placeholder="••••••••" style={styles.input} value={password} onChange={(e) => setPassword(e.target.value)} disabled={loading} />
-          </div>
-          <button type="submit" style={styles.button}>{loading ? 'Verificando...' : 'Entrar no Sistema'}</button>
-        </form>
-        <div style={styles.message}>{message}</div>
+    <div className={styles.container}>
+        {isModalOpen && (
+            <UserList 
+                onClose={() => setModalOpen(false)} 
+                onSelectUser={handleSelectUser} 
+                currentUserId={currentUserId}
+            />
+        )}
+
+      <header className={styles.header}>
+        <h1>Conversas</h1>
+        <button onClick={() => setModalOpen(true)} className={styles.newChatButton}>
+          Nova Conversa
+        </button>
+      </header>
+
+      <div className={styles.channelList}>
+        <h2>Canais de Grupo</h2>
+        {channels.map(channel => (
+          <Link key={channel.id} href={`/chat/${channel.id}`} passHref>
+            <div className={styles.channelItem}>
+              {channel.name}
+            </div>
+          </Link>
+        ))}
       </div>
 
-      <button onClick={enviarNotificacaoTeste} style={styles.btnTeste}>
-        🔔 Testar Notificação
-      </button>
+      <form onSubmit={createChannel} className={styles.createChannelForm}>
+        <input
+          type="text"
+          value={newChannelName}
+          onChange={(e) => setNewChannelName(e.target.value)}
+          placeholder="Criar um novo canal de grupo"
+          className={styles.input}
+        />
+        <button type="submit" className={styles.button}>Criar</button>
+      </form>
     </div>
   );
 }

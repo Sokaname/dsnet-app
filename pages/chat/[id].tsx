@@ -1,152 +1,196 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useRouter } from 'next/router';
+import Link from 'next/link'; // Importar o Link
+import Image from 'next/image';
+import styles from './ChatRoom.module.css';
 
 export default function ChatRoom() {
   const router = useRouter();
   const { id } = router.query;
 
-  const [channel, setChannel] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [currentUser, setCurrentUser] = useState('');
-  const [uploading, setUploading] = useState(false); // NOVO ESTADO
+  const [currentUserEmail, setCurrentUserEmail] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
+  const notificationSoundRef = useRef<null | HTMLAudioElement>(null);
 
-  // 1. Carregar Dados e Realtime
   useEffect(() => {
-    const getUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      if (data.user) setCurrentUser(data.user.email || 'Anônimo');
-    };
-    getUser();
+    notificationSoundRef.current = new Audio('/notificacao.mp3');
+  }, []);
 
-    if (id) {
-      fetchChannelDetails();
-      fetchMessages();
-      
-      const channelSub = supabase
-        .channel('public:mensagens') // Nome da tabela corrigido
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mensagens', filter: `channel_id=eq.${id}` }, (payload) => {
-          setMessages((current) => [...current, payload.new]);
-          scrollToBottom();
-        })
-        .subscribe();
-
-      return () => { supabase.removeChannel(channelSub); };
-    }
-  }, [id]);
-
-  const fetchChannelDetails = async () => {
-    const { data } = await supabase.from('channels').select('*').eq('id', id).single();
-    if (data) setChannel(data);
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const fetchMessages = async () => {
-    const { data } = await supabase
-      .from('mensagens') // Nome corrigido para 'mensagens'
+  const fetchMessages = useCallback(async () => {
+    if (!id) return;
+    const { data, error } = await supabase
+      .from('mensagens')
       .select('*')
       .eq('channel_id', id)
       .order('id', { ascending: true });
-    if (data) {
-      setMessages(data);
+
+    if (error) {
+      console.error('Error fetching messages:', error);
+      setError('Falha ao carregar mensagens.');
+    } else {
+      setMessages(data || []);
       scrollToBottom();
     }
-  };
+  }, [id]);
 
-  // 2. FUNÇÃO DE ENVIAR ARQUIVO (ANEXADA AQUI)
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUserEmail(user.email || 'Anônimo');
+      }
+    };
+    getUser();
+    fetchMessages();
+
+    const channelSub = supabase
+      .channel(`chat:${id}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'mensagens', 
+        filter: `channel_id=eq.${id}` 
+      }, (payload) => {
+        setMessages((current) => [...current, payload.new]);
+        notificationSoundRef.current?.play().catch(err => console.log("Audio play failed:", err));
+        scrollToBottom();
+      }).subscribe();
+
+    return () => { supabase.removeChannel(channelSub); };
+  }, [id, fetchMessages]);
+
   const enviarArquivo = async (event: React.ChangeEvent<HTMLInputElement>) => {
     try {
       setUploading(true);
+      setError(null);
       const file = event.target.files?.[0];
       if (!file) return;
 
       const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `${fileName}`;
+      const fileName = `${Date.now()}.${fileExt}`;
 
-      let { error: uploadError } = await supabase.storage
-        .from('arquivos')
-        .upload(filePath, file);
-
+      const { error: uploadError } = await supabase.storage.from('arquivos').upload(fileName, file);
       if (uploadError) throw uploadError;
 
-      const { data } = supabase.storage.from('arquivos').getPublicUrl(filePath);
-
+      const { data } = supabase.storage.from('arquivos').getPublicUrl(fileName);
       await supabase.from('mensagens').insert([{ 
         file_url: data.publicUrl, 
-        user_name: currentUser.split('@')[0], 
+        user_name: currentUserEmail.split('@')[0], 
         channel_id: id 
       }]);
 
     } catch (error: any) {
-      alert('Erro ao enviar: ' + error.message);
+      console.error('Error uploading file:', error);
+      setError('Falha no upload do arquivo.');
     } finally {
       setUploading(false);
     }
   };
 
-  const sendMessage = async (e: any) => {
+  const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
+    const userName = currentUserEmail.split('@')[0];
 
-    await supabase.from('mensagens').insert([{
+    const { error } = await supabase.from('mensagens').insert([{
       content: newMessage,
       channel_id: id,
-      user_name: currentUser.split('@')[0]
+      user_name: userName
     }]);
-
-    setNewMessage('');
+    
+    if (error) {
+      console.error('Error sending message:', error);
+      setError('Falha ao enviar mensagem.');
+    } else {
+      setNewMessage('');
+    }
   };
 
-  const scrollToBottom = () => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
+  const handleMicClick = () => {
+    alert('A função de gravação de voz será implementada em breve!');
   };
+
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const currentUserShortName = currentUserEmail.split('@')[0];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: '#0f172a', color: 'white' }}>
-      {/* Cabeçalho */}
-      <div style={{ padding: '15px', background: '#1e293b', borderBottom: '1px solid #334155' }}>
-        <strong>{channel?.name || 'Carregando...'}</strong>
+    <div className={styles.container}>
+      <div className={styles.header}>
+        <Link href="/" passHref>
+          <a className={styles.backButton}>
+            <Image src="/arrow-left.svg" alt="Voltar" width={24} height={24} />
+          </a>
+        </Link>
+        <span className={styles.headerTitle}>Canal: {id}</span>
+        {/* Espaço reservado para outras ações no cabeçalho */}
+        <div style={{ width: '24px' }} />
       </div>
+      {error && <div style={{ padding: '10px', backgroundColor: '#d9534f', textAlign: 'center' }}>{error}</div>}
 
-      {/* Lista de Mensagens */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
-        {messages.map((msg) => (
-          <div key={msg.id} style={{ marginBottom: '15px', textAlign: msg.user_name === currentUser.split('@')[0] ? 'right' : 'left' }}>
-            <div style={{ display: 'inline-block', padding: '10px', borderRadius: '10px', backgroundColor: msg.file_url ? 'transparent' : '#334155' }}>
-              <small style={{ color: '#94a3b8' }}>{msg.user_name}</small><br/>
-              {msg.file_url ? (
-                <img src={msg.file_url} style={{ maxWidth: '200px', borderRadius: '10px' }} />
-              ) : (
-                <span>{msg.content}</span>
-              )}
+      <div className={styles.messagesContainer}>
+        {messages.map((msg) => {
+          const isCurrentUser = msg.user_name === currentUserShortName;
+          return (
+            <div key={msg.id} className={`${styles.messageWrapper} ${isCurrentUser ? styles.currentUser : styles.otherUser}`}>
+              <div className={`${styles.message} ${isCurrentUser ? styles.currentUser : styles.otherUser}`}>
+                {!isCurrentUser && <div className={styles.userName}>{msg.user_name}</div>}
+                <div className={styles.messageContent}>
+                  {msg.file_url ? (
+                    <Image src={msg.file_url} alt="Arquivo enviado" width={250} height={250} className={styles.imageAttachment} />
+                  ) : (
+                    <span>{msg.content}</span>
+                  )}
+                   <div className={styles.timestamp}>{formatTimestamp(msg.created_at)}</div>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Barra de Digitação (Onde o Clipe entra) */}
-      <div style={{ padding: '15px', background: '#1e293b', display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <label style={{ cursor: 'pointer' }}>
-          <input type="file" style={{ display: 'none' }} onChange={enviarArquivo} disabled={uploading} accept="image/*" />
-          <span style={{ fontSize: '24px' }}>{uploading ? '⏳' : '📎'}</span>
-        </label>
-        
-        <form onSubmit={sendMessage} style={{ flex: 1, display: 'flex', gap: '10px' }}>
+      <form onSubmit={sendMessage} className={styles.inputArea}>
+        <div className={styles.inputWrapper}>
           <input 
             type="text" 
             value={newMessage} 
             onChange={(e) => setNewMessage(e.target.value)} 
-            placeholder="Mensagem"
-            style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: '#0f172a', color: 'white' }} 
+            placeholder="Escreva uma mensagem..."
+            className={styles.inputField} 
           />
-          <button type="submit" style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: '20px' }}>➤</button>
-        </form>
-      </div>
+          <label className={styles.iconButton}>
+            <input type="file" style={{ display: 'none' }} onChange={enviarArquivo} disabled={uploading} />
+            {uploading ? <div className={styles.uploadingSpinner}></div> : <Image src="/clipe-icon.png" alt="Anexar" width={22} height={22} />}
+          </label>
+          <label className={styles.iconButton} style={{ marginLeft: '10px' }}>
+            <input type="file" style={{ display: 'none' }} onChange={enviarArquivo} accept="image/*" capture="environment" disabled={uploading} />
+            <Image src="/camera-icon.png" alt="Câmera" width={24} height={24} />
+          </label>
+        </div>
+
+        {newMessage.trim() ? (
+          <button type="submit" className={styles.sendButton} disabled={uploading}>
+            <Image src="/send-icon.svg" alt="Enviar" width={24} height={24} />
+          </button>
+        ) : (
+          <button type="button" className={styles.sendButton} onClick={handleMicClick}>
+            <Image src="/mic-icon.png" alt="Microfone" width={24} height={24} />
+          </button>
+        )}
+      </form>
     </div>
   );
 }
